@@ -190,7 +190,7 @@ async function run() {
       res.send({ count });
     });
 
-    //update a user role
+    //update a user status
     app.patch("/users/update/:email", async (req, res) => {
       const email = req.params.email;
       const user = req.body;
