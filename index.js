@@ -55,10 +55,12 @@ async function run() {
 
     // Create a new user
     app.put("/register", async (req, res) => {
-      const { name, pin, role, mobile, email } = req.body;
+      const { name, pin, role, mobile_number, email } = req.body;
 
       // Check if the user already exists
-      const query = { $or: [{ email: email }, { mobile: mobile }] };
+      const query = {
+        $or: [{ email: email }, { mobile_number: mobile_number }],
+      };
       const existingUser = await usersCollection.findOne(query);
       if (existingUser) {
         return res.status(400).json({ message: "User already exists" });
@@ -72,7 +74,7 @@ async function run() {
         $set: {
           name,
           pin: hashedPin,
-          mobile,
+          mobile_number,
           email,
           status: "Pending",
           role,
@@ -103,7 +105,7 @@ async function run() {
 
       try {
         const user = await usersCollection.findOne({
-          $or: [{ email: identifier }, { mobile: identifier }],
+          $or: [{ email: identifier }, { mobile_number: identifier }],
         });
 
         if (!user) {
@@ -201,6 +203,135 @@ async function run() {
       const result = await usersCollection.updateOne(query, updateDoc);
       res.send(result);
     });
+
+    //  // Send Money endpoint
+    // app.post("/send-money", authenticateToken, async (req, res) => {
+    //   const { recipientId, amount, pin } = req.body;
+
+    //   // Validate amount
+    //   if (amount < 50) {
+    //     return res.status(400).json({ error: "Minimum transaction amount is 50 Taka" });
+    //   }
+
+    //   try {
+    //     // Verify sender's PIN
+    //     const sender = await usersCollection.findOne({ _id: new ObjectId(req.user.userId) });
+    //     const isPinValid = await bcrypt.compare(pin, sender.pin);
+    //     if (!isPinValid) {
+    //       return res.status(401).json({ error: "Invalid PIN" });
+    //     }
+
+    //     // Check sender's balance
+    //     let transactionFee = 0;
+    //     if (amount > 100) {
+    //       transactionFee = 5;
+    //     }
+    //     const totalAmount = amount + transactionFee;
+    //     if (sender.balance < totalAmount) {
+    //       return res.status(400).json({ error: "Insufficient balance" });
+    //     }
+
+    //     // Verify recipient exists
+    //     const recipient = await usersCollection.findOne({ _id: new ObjectId(recipientId) });
+    //     if (!recipient) {
+    //       return res.status(404).json({ error: "Recipient not found" });
+    //     }
+
+    //     // Perform the transaction
+    //     const session = client.startSession();
+    //     session.startTransaction();
+    //     try {
+    //       await usersCollection.updateOne(
+    //         { _id: sender._id },
+    //         { $inc: { balance: -totalAmount } },
+    //         { session }
+    //       );
+    //       await usersCollection.updateOne(
+    //         { _id: recipient._id },
+    //         { $inc: { balance: amount } },
+    //         { session }
+    //       );
+    //       await session.commitTransaction();
+    //     } catch (error) {
+    //       await session.abortTransaction();
+    //       throw error;
+    //     } finally {
+    //       session.endSession();
+    //     }
+
+    //     res.status(200).json({ message: "Transaction successful" });
+    //   } catch (error) {
+    //     res.status(500).json({ error: "Transaction failed" });
+    //   }
+    // });
+
+    app.post("/send-money", authenticateToken, async (req, res) => {
+      const { recipientMobile, amount, pin } = req.body;
+
+      // Validate amount
+      if (amount < 50) {
+        return res
+          .status(400)
+          .json({ error: "Minimum transaction amount is 50 Taka" });
+      }
+
+      try {
+        // Verify sender's PIN
+        const sender = await usersCollection.findOne({
+          _id: new ObjectId(req.user.userId),
+        });
+        const isPinValid = await bcrypt.compare(pin, sender.pin);
+        if (!isPinValid) {
+          return res.status(401).json({ error: "Invalid PIN" });
+        }
+
+        // Check sender's balance
+        let transactionFee = 0;
+        if (amount > 100) {
+          transactionFee = 5;
+        }
+        const totalAmount = amount + transactionFee;
+        if (sender.balance < totalAmount) {
+          return res.status(400).json({ error: "Insufficient balance" });
+        }
+
+        // Verify recipient exists
+        const recipient = await usersCollection.findOne({
+          mobile_number: recipientMobile,
+        });
+        if (!recipient) {
+          return res.status(404).json({ error: "Mobile number not found" });
+        }
+
+        // Perform the transaction
+        const session = client.startSession();
+        session.startTransaction();
+        try {
+          await usersCollection.updateOne(
+            { _id: sender._id },
+            { $inc: { balance: -totalAmount } },
+            { session }
+          );
+          await usersCollection.updateOne(
+            { _id: recipient._id },
+            { $inc: { balance: amount } },
+            { session }
+          );
+          await session.commitTransaction();
+        } catch (error) {
+          await session.abortTransaction();
+          throw error;
+        } finally {
+          session.endSession();
+        }
+
+        res.status(200).json({ message: "Transaction successful" });
+      } catch (error) {
+        res.status(500).json({ error: "Transaction failed" });
+      }
+    });
+
+    // Send a ping to confirm a successful connection
 
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
