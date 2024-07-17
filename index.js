@@ -39,23 +39,23 @@ async function run() {
     //Collections
     const usersCollection = client.db("PocketPay").collection("users");
 
-    // Register endpoint
-    // app.post('/register', async (req, res) => {
-    //   const { name, pin, mobile, email } = req.body;
-    //   const hashedPin = await bcrypt.hash(pin, 10);
-    //   const user = { name, pin: hashedPin, mobile, email };
+    // Protect routes middleware
+    const authenticateToken = (req, res, next) => {
+      const token = req.header("Authorization");
+      if (!token) return res.status(401).json({ error: "Access denied" });
 
-    //   try {
-    //     const result = await usersCollection.insertOne(user);
-    //     res.status(201).json({ message: 'User registered successfully', userId: result.insertedId });
-    //   } catch (error) {
-    //     res.status(500).json({ error: 'Registration failed' });
-    //   }
-    // });
+      try {
+        const verified = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+        req.user = verified;
+        next();
+      } catch (error) {
+        res.status(400).json({ error: "Invalid token" });
+      }
+    };
 
     // Create a new user
     app.put("/register", async (req, res) => {
-      const { name, pin, mobile, email } = req.body;
+      const { name, pin, role, mobile, email } = req.body;
 
       // Check if the user already exists
       const query = { $or: [{ email: email }, { mobile: mobile }] };
@@ -74,8 +74,8 @@ async function run() {
           pin: hashedPin,
           mobile,
           email,
-          status: "pending",
-          role: "user",
+          status: "Pending",
+          role,
           balance: 0,
           timestamp: Date.now(),
         },
@@ -88,22 +88,13 @@ async function run() {
           updateDoc,
           options
         );
-        res
-          .status(201)
-          .json({
-            message: "User registered, pending admin approval",
-            userId: result.insertedId,
-          });
+        res.status(201).json({
+          message: "User registered, pending admin approval",
+          userId: result.insertedId,
+        });
       } catch (error) {
         res.status(500).json({ error: "Registration failed" });
       }
-    });
-
-    // get a user info by email from db
-    app.get("/user/:email", async (req, res) => {
-      const email = req.params.email;
-      const result = await usersCollection.findOne({ email });
-      res.send(result);
     });
 
     // Login endpoint
@@ -135,20 +126,6 @@ async function run() {
       }
     });
 
-    // Protect routes middleware
-    const authenticateToken = (req, res, next) => {
-      const token = req.header("Authorization");
-      if (!token) return res.status(401).json({ error: "Access denied" });
-
-      try {
-        const verified = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-        req.user = verified;
-        next();
-      } catch (error) {
-        res.status(400).json({ error: "Invalid token" });
-      }
-    };
-
     // Profile endpoint
     app.get("/profile", authenticateToken, async (req, res) => {
       try {
@@ -164,6 +141,65 @@ async function run() {
       } catch (error) {
         res.status(500).json({ error: "Failed to fetch user profile" });
       }
+    });
+
+    /***************Users****************************************** */
+
+    // get a user info by email from db
+    app.get("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await usersCollection.findOne({ email });
+      res.send(result);
+    });
+
+    // Get all users data from db for pagination
+    app.get("/users", async (req, res) => {
+      const size = parseInt(req.query.size);
+      const page = parseInt(req.query.page) - 1;
+      const filter = req.query.filter;
+      const search = req.query.search;
+      // console.log(filter, search)
+      // console.log(size, page)
+
+      let query = {
+        name: { $regex: search, $options: "i" },
+      };
+      if (filter) query.role = filter;
+      let options = {};
+      // const result = await usersCollection.find(query, options).toArray();
+      const result = await usersCollection
+        .find(query, options)
+        .skip(page * size)
+        .limit(size)
+        .toArray();
+      // const result = await usersCollection.find().toArray();
+
+      res.send(result);
+    });
+
+    // Get all users data count from db
+    app.get("/users-count", async (req, res) => {
+      const filter = req.query.filter;
+      const search = req.query.search;
+      let query = {
+        name: { $regex: search, $options: "i" },
+      };
+      if (filter) query.name = filter;
+      const count = await usersCollection.countDocuments(query);
+
+      res.send({ count });
+    });
+
+    //update a user role
+    app.patch("/users/update/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const query = { email };
+      const updateDoc = {
+        $set: { ...user, timestamp: Date.now() },
+      };
+      const result = await usersCollection.updateOne(query, updateDoc);
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
