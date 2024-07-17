@@ -204,66 +204,7 @@ async function run() {
       res.send(result);
     });
 
-    //  // Send Money endpoint
-    // app.post("/send-money", authenticateToken, async (req, res) => {
-    //   const { recipientId, amount, pin } = req.body;
-
-    //   // Validate amount
-    //   if (amount < 50) {
-    //     return res.status(400).json({ error: "Minimum transaction amount is 50 Taka" });
-    //   }
-
-    //   try {
-    //     // Verify sender's PIN
-    //     const sender = await usersCollection.findOne({ _id: new ObjectId(req.user.userId) });
-    //     const isPinValid = await bcrypt.compare(pin, sender.pin);
-    //     if (!isPinValid) {
-    //       return res.status(401).json({ error: "Invalid PIN" });
-    //     }
-
-    //     // Check sender's balance
-    //     let transactionFee = 0;
-    //     if (amount > 100) {
-    //       transactionFee = 5;
-    //     }
-    //     const totalAmount = amount + transactionFee;
-    //     if (sender.balance < totalAmount) {
-    //       return res.status(400).json({ error: "Insufficient balance" });
-    //     }
-
-    //     // Verify recipient exists
-    //     const recipient = await usersCollection.findOne({ _id: new ObjectId(recipientId) });
-    //     if (!recipient) {
-    //       return res.status(404).json({ error: "Recipient not found" });
-    //     }
-
-    //     // Perform the transaction
-    //     const session = client.startSession();
-    //     session.startTransaction();
-    //     try {
-    //       await usersCollection.updateOne(
-    //         { _id: sender._id },
-    //         { $inc: { balance: -totalAmount } },
-    //         { session }
-    //       );
-    //       await usersCollection.updateOne(
-    //         { _id: recipient._id },
-    //         { $inc: { balance: amount } },
-    //         { session }
-    //       );
-    //       await session.commitTransaction();
-    //     } catch (error) {
-    //       await session.abortTransaction();
-    //       throw error;
-    //     } finally {
-    //       session.endSession();
-    //     }
-
-    //     res.status(200).json({ message: "Transaction successful" });
-    //   } catch (error) {
-    //     res.status(500).json({ error: "Transaction failed" });
-    //   }
-    // });
+    // Send Money endpoint
 
     app.post("/send-money", authenticateToken, async (req, res) => {
       const { recipientMobile, amount, pin } = req.body;
@@ -330,8 +271,72 @@ async function run() {
         res.status(500).json({ error: "Transaction failed" });
       }
     });
-
     // Send a ping to confirm a successful connection
+
+    // Cash Out endpoint
+    app.post("/cash-out", authenticateToken, async (req, res) => {
+      const { agentMobile, amount, pin } = req.body;
+
+      // Validate amount
+      if (amount <= 0) {
+        return res.status(400).json({ error: "Invalid transaction amount" });
+      }
+
+      try {
+        // Verify user's PIN
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(req.user.userId),
+        });
+        const isPinValid = await bcrypt.compare(pin, user.pin);
+        if (!isPinValid) {
+          return res.status(401).json({ error: "Invalid PIN" });
+        }
+
+        // Calculate fee
+        const fee = amount * 0.015;
+        const totalAmount = amount + fee;
+
+        // Check user's balance
+        if (user.balance < totalAmount) {
+          return res.status(400).json({ error: "Insufficient balance" });
+        }
+
+        // Verify agent exists
+        const agent = await usersCollection.findOne({
+          mobile_number: agentMobile,
+          role: "agent",
+        });
+        if (!agent) {
+          return res.status(404).json({ error: "Agent not found" });
+        }
+
+        // Perform the transaction
+        const session = client.startSession();
+        session.startTransaction();
+        try {
+          await usersCollection.updateOne(
+            { _id: user._id },
+            { $inc: { balance: -totalAmount } },
+            { session }
+          );
+          await usersCollection.updateOne(
+            { _id: agent._id },
+            { $inc: { balance: amount + fee } },
+            { session }
+          );
+          await session.commitTransaction();
+        } catch (error) {
+          await session.abortTransaction();
+          throw error;
+        } finally {
+          session.endSession();
+        }
+
+        res.status(200).json({ message: "Cash-out successful" });
+      } catch (error) {
+        res.status(500).json({ error: "Transaction failed" });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
