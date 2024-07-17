@@ -41,18 +41,57 @@ async function run() {
 
 
     // Register endpoint
-  app.post('/register', async (req, res) => {
-    const { name, pin, mobile, email } = req.body;
-    const hashedPin = await bcrypt.hash(pin, 10);
-    const user = { name, pin: hashedPin, mobile, email };
+  // app.post('/register', async (req, res) => {
+  //   const { name, pin, mobile, email } = req.body;
+  //   const hashedPin = await bcrypt.hash(pin, 10);
+  //   const user = { name, pin: hashedPin, mobile, email };
 
+  //   try {
+  //     const result = await usersCollection.insertOne(user);
+  //     res.status(201).json({ message: 'User registered successfully', userId: result.insertedId });
+  //   } catch (error) {
+  //     res.status(500).json({ error: 'Registration failed' });
+  //   }
+  // });
+
+  // Create a new user
+  app.put("/register", async (req, res) => {
+
+    const { name, pin, mobile, email } = req.body;
+
+    // Check if the user already exists
+    const query = { $or: [{ email: email }, { mobile: mobile }] };
+    const existingUser = await usersCollection.findOne(query);
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+    // Hash the PIN
+    const hashedPin = await bcrypt.hash(pin, 10);
+
+    // save user for the first time
+    const options = { upsert: true };
+    const updateDoc = {
+      $set: {
+        name,
+        pin: hashedPin,
+        mobile,
+        email,
+        status: "pending",
+        role: 'user',
+        balance: 0,
+        timestamp: Date.now(),
+      },
+    };    
+
+    // Save the user to the database
     try {
-      const result = await usersCollection.insertOne(user);
-      res.status(201).json({ message: 'User registered successfully', userId: result.insertedId });
+      const result = await usersCollection.updateOne(query, updateDoc, options);
+      res.status(201).json({ message: 'User registered, pending admin approval', userId: result.insertedId });
     } catch (error) {
       res.status(500).json({ error: 'Registration failed' });
     }
   });
+
 
   // Login endpoint
   app.post('/login', async (req, res) => {
